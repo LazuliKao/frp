@@ -16,6 +16,7 @@ package udp
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -72,9 +73,12 @@ func ForwardUserConn(udpConn *net.UDPConn, readCh <-chan *msg.UDPPacket, sendCh 
 func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<- msg.Message, bufSize int) {
 	var mu sync.RWMutex
 	udpConnMap := make(map[string]*net.UDPConn)
-
 	// read from dstAddr and write to sendCh
 	writerFn := func(raddr *net.UDPAddr, udpConn *net.UDPConn) {
+		fmt.Println("-", dstAddr.String())
+		for key, value := range udpConnMap {
+			fmt.Println("+", dstAddr.String(), "|", key, "|", value.LocalAddr().String())
+		}
 		addr := raddr.String()
 		defer func() {
 			mu.Lock()
@@ -90,7 +94,6 @@ func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<-
 			if err != nil {
 				return
 			}
-
 			udpMsg := NewUDPPacket(buf[:n], nil, raddr)
 			if err = errors.PanicToError(func() {
 				select {
@@ -121,7 +124,10 @@ func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<-
 				udpConnMap[udpMsg.RemoteAddr.String()] = udpConn
 			}
 			mu.Unlock()
-
+			// pktType := buf[0]
+			// if pktType == 1 {
+			// 	fmt.Println("udp.go: writerFn: firstByte: ", pktType)
+			// }
 			_, err = udpConn.Write(buf)
 			if err != nil {
 				udpConn.Close()
