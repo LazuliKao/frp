@@ -70,14 +70,14 @@ func ForwardUserConn(udpConn *net.UDPConn, readCh <-chan *msg.UDPPacket, sendCh 
 	}
 }
 
-func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<- msg.Message, bufSize int) {
+func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<- msg.Message, bufSize int, proxyAddr string) {
 	var mu sync.RWMutex
 	udpConnMap := make(map[string]*net.UDPConn)
 	// read from dstAddr and write to sendCh
 	writerFn := func(raddr *net.UDPAddr, udpConn *net.UDPConn) {
-		fmt.Println("-", dstAddr.String())
+		fmt.Println("-", dstAddr.String(), "*", proxyAddr)
 		for key, value := range udpConnMap {
-			fmt.Println("+", dstAddr.String(), "|", key, "|", value.LocalAddr().String())
+			fmt.Println("+", dstAddr.String(), "*", proxyAddr, "|", key, "|", value.LocalAddr().String())
 		}
 		addr := raddr.String()
 		defer func() {

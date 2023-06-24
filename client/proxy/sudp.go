@@ -203,5 +203,5 @@ func (pxy *SUDPProxy) InWorkConn(conn net.Conn, m *msg.StartWorkConn) {
 	go workConnReaderFn(workConn, readCh)
 	go heartbeatFn(sendCh)
 
-	udp.Forwarder(pxy.localAddr, readCh, sendCh, int(pxy.clientCfg.UDPPacketSize))
+	udp.Forwarder(pxy.localAddr, readCh, sendCh, int(pxy.clientCfg.UDPPacketSize), conn.RemoteAddr().String())
 }
