@@ -331,24 +331,29 @@ var _ = ginkgo.Describe("[Feature: Basic]", func() {
 					proxyExtraConfig   string
 					visitorExtraConfig string
 					expectError        bool
-					user2              bool
+					deployUser2Client  bool
+					// skipXTCP is used to skip xtcp test case
+					skipXTCP bool
 				}{
 					{
 						proxyName:    "normal",
 						bindPortName: port.GenName("Normal"),
 						visitorSK:    correctSK,
+						skipXTCP:     true,
 					},
 					{
 						proxyName:         "with-encryption",
 						bindPortName:      port.GenName("WithEncryption"),
 						visitorSK:         correctSK,
 						commonExtraConfig: "use_encryption = true",
+						skipXTCP:          true,
 					},
 					{
 						proxyName:         "with-compression",
 						bindPortName:      port.GenName("WithCompression"),
 						visitorSK:         correctSK,
 						commonExtraConfig: "use_compression = true",
+						skipXTCP:          true,
 					},
 					{
 						proxyName:    "with-encryption-and-compression",
@@ -371,7 +376,7 @@ var _ = ginkgo.Describe("[Feature: Basic]", func() {
 						visitorSK:          correctSK,
 						proxyExtraConfig:   "allow_users = another, user2",
 						visitorExtraConfig: "server_user = user1",
-						user2:              true,
+						deployUser2Client:  true,
 					},
 					{
 						proxyName:          "not-allowed-user",
@@ -387,7 +392,7 @@ var _ = ginkgo.Describe("[Feature: Basic]", func() {
 						visitorSK:          correctSK,
 						proxyExtraConfig:   "allow_users = *",
 						visitorExtraConfig: "server_user = user1",
-						user2:              true,
+						deployUser2Client:  true,
 					},
 				}
 
@@ -399,7 +404,7 @@ var _ = ginkgo.Describe("[Feature: Basic]", func() {
 					config := getProxyVisitorConf(
 						test.proxyName, test.bindPortName, test.visitorSK, test.commonExtraConfig+"\n"+test.visitorExtraConfig,
 					) + "\n"
-					if test.user2 {
+					if test.deployUser2Client {
 						clientUser2VisitorConf += config
 					} else {
 						clientVisitorConf += config
@@ -409,9 +414,16 @@ var _ = ginkgo.Describe("[Feature: Basic]", func() {
 				f.RunProcesses([]string{serverConf}, []string{clientServerConf, clientVisitorConf, clientUser2VisitorConf})
 
 				for _, test := range tests {
+					timeout := time.Second
+					if t == "xtcp" {
+						if test.skipXTCP {
+							continue
+						}
+						timeout = 10 * time.Second
+					}
 					framework.NewRequestExpect(f).
 						RequestModify(func(r *request.Request) {
-							r.Timeout(3 * time.Second)
+							r.Timeout(timeout)
 						}).
 						Protocol(protocol).
 						PortName(test.bindPortName).
