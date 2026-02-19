@@ -15,6 +15,7 @@
 package vhost
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
 	"net"
@@ -27,8 +28,8 @@ type HTTPSMuxer struct {
 	*Muxer
 }
 
-func NewHTTPSMuxer(listener net.Listener, timeout time.Duration) (*HTTPSMuxer, error) {
-	mux, err := NewMuxer(listener, GetHTTPSHostname, timeout)
+func NewHTTPSMuxer(ctx context.Context, listener net.Listener, timeout time.Duration) (*HTTPSMuxer, error) {
+	mux, err := NewMuxer(ctx, listener, GetHTTPSHostname, timeout)
 	mux.SetFailHookFunc(vhostFailed)
 	if err != nil {
 		return nil, err

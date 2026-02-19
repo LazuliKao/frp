@@ -31,8 +31,8 @@ import (
 
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/transport"
-	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/pkg/util/util"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 // NatHoleTimeout seconds.
@@ -108,6 +108,7 @@ func NewController(analysisDataReserveDuration time.Duration) (*Controller, erro
 }
 
 func (c *Controller) CleanWorker(ctx context.Context) {
+	xl := xlog.FromContextSafe(ctx)
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -115,7 +116,7 @@ func (c *Controller) CleanWorker(ctx context.Context) {
 		case <-ticker.C:
 			start := time.Now()
 			count, total := c.analyzer.Clean()
-			log.Tracef("clean %d/%d nathole analysis data, cost %v", count, total, time.Since(start))
+			xl.Tracef("clean %d/%d nathole analysis data, cost %v", count, total, time.Since(start))
 		case <-ctx.Done():
 			return
 		}
@@ -150,7 +151,8 @@ func (c *Controller) GenSid() string {
 	return fmt.Sprintf("%d%s", t, id)
 }
 
-func (c *Controller) HandleVisitor(m *msg.NatHoleVisitor, transporter transport.MessageTransporter, visitorUser string) {
+func (c *Controller) HandleVisitor(ctx context.Context, m *msg.NatHoleVisitor, transporter transport.MessageTransporter, visitorUser string) {
+	xl := xlog.FromContextSafe(ctx)
 	if m.PreCheck {
 		cfg, ok := c.clientCfgs[m.ProxyName]
 		if !ok {
@@ -191,11 +193,11 @@ func (c *Controller) HandleVisitor(m *msg.NatHoleVisitor, transporter transport.
 		return nil
 	}()
 	if err != nil {
-		log.Warnf("handle visitorMsg error: %v", err)
+		xl.Warnf("handle visitorMsg error: %v", err)
 		_ = transporter.Send(c.GenNatHoleResponse(m.TransactionID, nil, err.Error()))
 		return
 	}
-	log.Tracef("handle visitor message, sid [%s], server name: %s", sid, m.ProxyName)
+	xl.Tracef("handle visitor message, sid [%s], server name: %s", sid, m.ProxyName)
 
 	defer func() {
 		c.mu.Lock()
@@ -213,14 +215,14 @@ func (c *Controller) HandleVisitor(m *msg.NatHoleVisitor, transporter transport.
 	select {
 	case <-session.notifyCh:
 	case <-time.After(time.Duration(NatHoleTimeout) * time.Second):
-		log.Debugf("wait for NatHoleClient message timeout, sid [%s]", sid)
+		xl.Debugf("wait for NatHoleClient message timeout, sid [%s]", sid)
 		return
 	}
 
 	// Make hole-punching decisions based on the NAT information of the client and visitor.
-	vResp, cResp, err := c.analysis(session)
+	vResp, cResp, err := c.analysis(ctx, session)
 	if err != nil {
-		log.Debugf("sid [%s] analysis error: %v", err)
+		xl.Debugf("sid [%s] analysis error: %v", err)
 		vResp = c.GenNatHoleResponse(session.visitorMsg.TransactionID, nil, err.Error())
 		cResp = c.GenNatHoleResponse(session.clientMsg.TransactionID, nil, err.Error())
 	}
@@ -250,14 +252,15 @@ func (c *Controller) HandleVisitor(m *msg.NatHoleVisitor, transporter transport.
 	time.Sleep(time.Duration(cResp.DetectBehavior.ReadTimeoutMs+30000) * time.Millisecond)
 }
 
-func (c *Controller) HandleClient(m *msg.NatHoleClient, transporter transport.MessageTransporter) {
+func (c *Controller) HandleClient(ctx context.Context, m *msg.NatHoleClient, transporter transport.MessageTransporter) {
+	xl := xlog.FromContextSafe(ctx)
 	c.mu.RLock()
 	session, ok := c.sessions[m.Sid]
 	c.mu.RUnlock()
 	if !ok {
 		return
 	}
-	log.Tracef("handle client message, sid [%s], server name: %s", session.sid, m.ProxyName)
+	xl.Tracef("handle client message, sid [%s], server name: %s", session.sid, m.ProxyName)
 	session.clientMsg = m
 	session.clientTransporter = transporter
 	select {
@@ -266,18 +269,19 @@ func (c *Controller) HandleClient(m *msg.NatHoleClient, transporter transport.Me
 	}
 }
 
-func (c *Controller) HandleReport(m *msg.NatHoleReport) {
+func (c *Controller) HandleReport(ctx context.Context, m *msg.NatHoleReport) {
+	xl := xlog.FromContextSafe(ctx)
 	c.mu.RLock()
 	session, ok := c.sessions[m.Sid]
 	c.mu.RUnlock()
 	if !ok {
-		log.Tracef("sid [%s] report make hole success: %v, but session not found", m.Sid, m.Success)
+		xl.Tracef("sid [%s] report make hole success: %v, but session not found", m.Sid, m.Success)
 		return
 	}
 	if m.Success {
 		c.analyzer.ReportSuccess(session.analysisKey, session.recommandMode, session.recommandIndex)
 	}
-	log.Infof("sid [%s] report make hole success: %v, mode %v, index %v",
+	xl.Infof("sid [%s] report make hole success: %v, mode %v, index %v",
 		m.Sid, m.Success, session.recommandMode, session.recommandIndex)
 }
 
@@ -295,7 +299,8 @@ func (c *Controller) GenNatHoleResponse(transactionID string, session *Session, 
 
 // analysis analyzes the NAT type and behavior of the visitor and client, then makes hole-punching decisions.
 // return the response to the visitor and client.
-func (c *Controller) analysis(session *Session) (*msg.NatHoleResp, *msg.NatHoleResp, error) {
+func (c *Controller) analysis(ctx context.Context, session *Session) (*msg.NatHoleResp, *msg.NatHoleResp, error) {
+	xl := xlog.FromContextSafe(ctx)
 	cm := session.clientMsg
 	vm := session.visitorMsg
 
@@ -359,10 +364,10 @@ func (c *Controller) analysis(session *Session) (*msg.NatHoleResp, *msg.NatHoleR
 		},
 	}
 
-	log.Debugf("sid [%s] visitor nat: %+v, candidateAddrs: %v; client nat: %+v, candidateAddrs: %v, protocol: %s",
+	xl.Debugf("sid [%s] visitor nat: %+v, candidateAddrs: %v; client nat: %+v, candidateAddrs: %v, protocol: %s",
 		session.sid, *vNatFeature, vm.MappedAddrs, *cNatFeature, cm.MappedAddrs, protocol)
-	log.Debugf("sid [%s] visitor detect behavior: %+v", session.sid, vResp.DetectBehavior)
-	log.Debugf("sid [%s] client detect behavior: %+v", session.sid, cResp.DetectBehavior)
+	xl.Debugf("sid [%s] visitor detect behavior: %+v", session.sid, vResp.DetectBehavior)
+	xl.Debugf("sid [%s] client detect behavior: %+v", session.sid, cResp.DetectBehavior)
 	return vResp, cResp, nil
 }
 

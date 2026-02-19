@@ -30,7 +30,7 @@ import (
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/pkg/policy/security"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 // Controller handles HTTP API requests for frpc.
@@ -85,23 +85,25 @@ func (c *Controller) Reload(ctx *httppkg.Context) (any, error) {
 		strictConfigMode, _ = strconv.ParseBool(strictStr)
 	}
 
+	xl := xlog.FromContextSafe(ctx.Req.Context())
+
 	cliCfg, proxyCfgs, visitorCfgs, _, err := config.LoadClientConfig(c.configFilePath, strictConfigMode)
 	if err != nil {
-		log.Warnf("reload frpc proxy config error: %s", err.Error())
+		xl.Warnf("reload frpc proxy config error: %s", err.Error())
 		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
 	}
 
 	if _, err := validation.ValidateAllClientConfig(cliCfg, proxyCfgs, visitorCfgs, c.unsafeFeatures); err != nil {
-		log.Warnf("reload frpc proxy config error: %s", err.Error())
+		xl.Warnf("reload frpc proxy config error: %s", err.Error())
 		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
 	}
 
 	if err := c.updateConfig(proxyCfgs, visitorCfgs); err != nil {
-		log.Warnf("reload frpc proxy config error: %s", err.Error())
+		xl.Warnf("reload frpc proxy config error: %s", err.Error())
 		return nil, httppkg.NewError(http.StatusInternalServerError, err.Error())
 	}
 
-	log.Infof("success reload conf")
+	xl.Infof("success reload conf")
 	return nil, nil
 }
 
@@ -142,7 +144,8 @@ func (c *Controller) GetConfig(ctx *httppkg.Context) (any, error) {
 
 	content, err := os.ReadFile(c.configFilePath)
 	if err != nil {
-		log.Warnf("load frpc config file error: %s", err.Error())
+		xl := xlog.FromContextSafe(ctx.Req.Context())
+		xl.Warnf("load frpc config file error: %s", err.Error())
 		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
 	}
 	return string(content), nil

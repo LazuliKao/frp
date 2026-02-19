@@ -16,6 +16,7 @@ package api
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,8 +28,8 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/metrics/mem"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/pkg/util/version"
+	"github.com/fatedier/frp/pkg/util/xlog"
 	"github.com/fatedier/frp/server/proxy"
 	"github.com/fatedier/frp/server/registry"
 )
@@ -166,7 +167,7 @@ func (c *Controller) APIProxyByType(ctx *httppkg.Context) (any, error) {
 	proxyType := ctx.Param("type")
 
 	proxyInfoResp := GetProxyInfoResp{}
-	proxyInfoResp.Proxies = c.getProxyStatsByType(proxyType)
+	proxyInfoResp.Proxies = c.getProxyStatsByType(ctx.Req.Context(), proxyType)
 	slices.SortFunc(proxyInfoResp.Proxies, func(a, b *ProxyStatsInfo) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
@@ -179,7 +180,7 @@ func (c *Controller) APIProxyByTypeAndName(ctx *httppkg.Context) (any, error) {
 	proxyType := ctx.Param("type")
 	name := ctx.Param("name")
 
-	proxyStatsResp, code, msg := c.getProxyStatsByTypeAndName(proxyType, name)
+	proxyStatsResp, code, msg := c.getProxyStatsByTypeAndName(ctx.Req.Context(), proxyType, name)
 	if code != 200 {
 		return nil, httppkg.NewError(code, msg)
 	}
@@ -227,12 +228,12 @@ func (c *Controller) APIProxyByName(ctx *httppkg.Context) (any, error) {
 	if pxy, ok := c.pxyManager.GetByName(name); ok {
 		content, err := json.Marshal(pxy.GetConfigurer())
 		if err != nil {
-			log.Warnf("marshal proxy [%s] conf info error: %v", name, err)
+			xlog.FromContextSafe(ctx.Req.Context()).Warnf("marshal proxy [%s] conf info error: %v", name, err)
 			return nil, httppkg.NewError(http.StatusBadRequest, "parse conf error")
 		}
 		proxyInfo.Conf = getConfByType(ps.Type)
 		if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
-			log.Warnf("unmarshal proxy [%s] conf info error: %v", name, err)
+			xlog.FromContextSafe(ctx.Req.Context()).Warnf("unmarshal proxy [%s] conf info error: %v", name, err)
 			return nil, httppkg.NewError(http.StatusBadRequest, "parse conf error")
 		}
 		proxyInfo.Status = "online"
@@ -252,12 +253,12 @@ func (c *Controller) DeleteProxies(ctx *httppkg.Context) (any, error) {
 	if status != "offline" {
 		return nil, httppkg.NewError(http.StatusBadRequest, "status only support offline")
 	}
-	cleared, total := mem.StatsCollector.ClearOfflineProxies()
-	log.Infof("cleared [%d] offline proxies, total [%d] proxies", cleared, total)
+	cleared, total := mem.StatsCollector.ClearOfflineProxies(ctx.Req.Context())
+	xlog.FromContextSafe(ctx.Req.Context()).Infof("cleared [%d] offline proxies, total [%d] proxies", cleared, total)
 	return nil, nil
 }
 
-func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyStatsInfo) {
+func (c *Controller) getProxyStatsByType(ctx context.Context, proxyType string) (proxyInfos []*ProxyStatsInfo) {
 	proxyStats := mem.StatsCollector.GetProxiesByType(proxyType)
 	proxyInfos = make([]*ProxyStatsInfo, 0, len(proxyStats))
 	for _, ps := range proxyStats {
@@ -268,12 +269,12 @@ func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyS
 		if pxy, ok := c.pxyManager.GetByName(ps.Name); ok {
 			content, err := json.Marshal(pxy.GetConfigurer())
 			if err != nil {
-				log.Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
+				xlog.FromContextSafe(ctx).Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
 				continue
 			}
 			proxyInfo.Conf = getConfByType(ps.Type)
 			if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
-				log.Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
+				xlog.FromContextSafe(ctx).Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
 				continue
 			}
 			proxyInfo.Status = "online"
@@ -294,7 +295,7 @@ func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyS
 	return
 }
 
-func (c *Controller) getProxyStatsByTypeAndName(proxyType string, proxyName string) (proxyInfo GetProxyStatsResp, code int, msg string) {
+func (c *Controller) getProxyStatsByTypeAndName(ctx context.Context, proxyType string, proxyName string) (proxyInfo GetProxyStatsResp, code int, msg string) {
 	proxyInfo.Name = proxyName
 	ps := mem.StatsCollector.GetProxiesByTypeAndName(proxyType, proxyName)
 	if ps == nil {
@@ -306,14 +307,14 @@ func (c *Controller) getProxyStatsByTypeAndName(proxyType string, proxyName stri
 		if pxy, ok := c.pxyManager.GetByName(proxyName); ok {
 			content, err := json.Marshal(pxy.GetConfigurer())
 			if err != nil {
-				log.Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
+				xlog.FromContextSafe(ctx).Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
 				code = 400
 				msg = "parse conf error"
 				return
 			}
 			proxyInfo.Conf = getConfByType(ps.Type)
 			if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
-				log.Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
+				xlog.FromContextSafe(ctx).Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
 				code = 400
 				msg = "parse conf error"
 				return

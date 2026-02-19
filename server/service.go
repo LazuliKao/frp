@@ -35,13 +35,13 @@ import (
 	"github.com/fatedier/frp/pkg/auth"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	modelmetrics "github.com/fatedier/frp/pkg/metrics"
+	mem "github.com/fatedier/frp/pkg/metrics/mem"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/nathole"
 	plugin "github.com/fatedier/frp/pkg/plugin/server"
 	"github.com/fatedier/frp/pkg/ssh"
 	"github.com/fatedier/frp/pkg/transport"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/tcpmux"
 	"github.com/fatedier/frp/pkg/util/util"
@@ -191,17 +191,17 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 			return nil, fmt.Errorf("create server listener error, %v", err)
 		}
 
-		svr.rc.TCPMuxHTTPConnectMuxer, err = tcpmux.NewHTTPConnectTCPMuxer(l, cfg.TCPMuxPassthrough, vhostReadWriteTimeout)
+		svr.rc.TCPMuxHTTPConnectMuxer, err = tcpmux.NewHTTPConnectTCPMuxer(svr.ctx, l, cfg.TCPMuxPassthrough, vhostReadWriteTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("create vhost tcpMuxer error, %v", err)
 		}
-		log.Infof("tcpmux httpconnect multiplexer listen on %s, passthough: %v", address, cfg.TCPMuxPassthrough)
+		xlog.FromContextSafe(svr.ctx).Infof("tcpmux httpconnect multiplexer listen on %s, passthough: %v", address, cfg.TCPMuxPassthrough)
 	}
 
 	// Init all plugins
 	for _, p := range cfg.HTTPPlugins {
 		svr.pluginManager.Register(plugin.NewHTTPPluginOptions(p))
-		log.Infof("plugin [%s] has been registered", p.Name)
+		xlog.FromContextSafe(svr.ctx).Infof("plugin [%s] has been registered", p.Name)
 	}
 	svr.rc.PluginManager = svr.pluginManager
 
@@ -245,7 +245,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 	ln = svr.muxer.DefaultListener()
 
 	svr.listener = ln
-	log.Infof("frps tcp listen on %s", address)
+	xlog.FromContextSafe(svr.ctx).Infof("frps tcp listen on %s", address)
 
 	// Listen for accepting connections from client using kcp protocol.
 	if cfg.KCPBindPort > 0 {
@@ -254,7 +254,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		if err != nil {
 			return nil, fmt.Errorf("listen on kcp udp address %s error: %v", address, err)
 		}
-		log.Infof("frps kcp listen on udp %s", address)
+		xlog.FromContextSafe(svr.ctx).Infof("frps kcp listen on udp %s", address)
 	}
 
 	if cfg.QUICBindPort > 0 {
@@ -269,16 +269,16 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		if err != nil {
 			return nil, fmt.Errorf("listen on quic udp address %s error: %v", address, err)
 		}
-		log.Infof("frps quic listen on %s", address)
+		xlog.FromContextSafe(svr.ctx).Infof("frps quic listen on %s", address)
 	}
 
 	if cfg.SSHTunnelGateway.BindPort > 0 {
-		sshGateway, err := ssh.NewGateway(cfg.SSHTunnelGateway, cfg.BindAddr, svr.sshTunnelListener)
+		sshGateway, err := ssh.NewGateway(svr.ctx, cfg.SSHTunnelGateway, cfg.BindAddr, svr.sshTunnelListener)
 		if err != nil {
 			return nil, fmt.Errorf("create ssh gateway error: %v", err)
 		}
 		svr.sshTunnelGateway = sshGateway
-		log.Infof("frps sshTunnelGateway listen on port %d", cfg.SSHTunnelGateway.BindPort)
+		xlog.FromContextSafe(svr.ctx).Infof("frps sshTunnelGateway listen on port %d", cfg.SSHTunnelGateway.BindPort)
 	}
 
 	// Listen for accepting connections from client using websocket protocol.
@@ -313,7 +313,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		go func() {
 			_ = server.Serve(l)
 		}()
-		log.Infof("http service listen on %s", address)
+		xlog.FromContextSafe(svr.ctx).Infof("http service listen on %s", address)
 	}
 
 	// Create https vhost muxer.
@@ -327,10 +327,10 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create server listener error, %v", err)
 			}
-			log.Infof("https service listen on %s", address)
+			xlog.FromContextSafe(svr.ctx).Infof("https service listen on %s", address)
 		}
 
-		svr.rc.VhostHTTPSMuxer, err = vhost.NewHTTPSMuxer(l, vhostReadWriteTimeout)
+		svr.rc.VhostHTTPSMuxer, err = vhost.NewHTTPSMuxer(svr.ctx, l, vhostReadWriteTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("create vhost httpsMuxer error, %v", err)
 		}
@@ -361,10 +361,11 @@ func (svr *Service) Run(ctx context.Context) {
 
 	// run dashboard web server.
 	if svr.webServer != nil {
+		xl := xlog.FromContextSafe(svr.ctx)
 		go func() {
-			log.Infof("dashboard listen on %s", svr.webServer.Address())
+			xl.Infof("dashboard listen on %s", svr.webServer.Address())
 			if err := svr.webServer.Run(); err != nil {
-				log.Warnf("dashboard server exit with error: %v", err)
+				xl.Warnf("dashboard server exit with error: %v", err)
 			}
 		}()
 	}
@@ -387,6 +388,8 @@ func (svr *Service) Run(ctx context.Context) {
 	if svr.sshTunnelGateway != nil {
 		go svr.sshTunnelGateway.Run()
 	}
+
+	mem.RunCleanupTask(svr.ctx)
 
 	svr.HandleListener(svr.listener, false)
 
@@ -441,7 +444,7 @@ func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, interna
 
 	_ = conn.SetReadDeadline(time.Now().Add(connReadTimeout))
 	if rawMsg, err = msg.ReadMsg(conn); err != nil {
-		log.Tracef("failed to read message: %v", err)
+		xl.Tracef("failed to read message: %v", err)
 		conn.Close()
 		return
 	}
@@ -489,7 +492,7 @@ func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, interna
 			})
 		}
 	default:
-		log.Warnf("error message type for the new connection [%s]", conn.RemoteAddr().String())
+		xl.Warnf("error message type for the new connection [%s]", conn.RemoteAddr().String())
 		conn.Close()
 	}
 }
@@ -502,7 +505,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			log.Warnf("listener for incoming connections from client closed")
+			xlog.FromContextSafe(svr.ctx).Warnf("listener for incoming connections from client closed")
 			return
 		}
 		// inject xlog object into net.Conn context
@@ -512,17 +515,17 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 		c = netpkg.NewContextConn(xlog.NewContext(ctx, xl), c)
 
 		if !internal {
-			log.Tracef("start check TLS connection...")
+			xl.Tracef("start check TLS connection...")
 			originConn := c
 			forceTLS := svr.cfg.Transport.TLS.Force
 			var isTLS, custom bool
 			c, isTLS, custom, err = netpkg.CheckAndEnableTLSServerConnWithTimeout(c, svr.tlsConfig, forceTLS, connReadTimeout)
 			if err != nil {
-				log.Warnf("checkAndEnableTLSServerConnWithTimeout error: %v", err)
+				xl.Warnf("checkAndEnableTLSServerConnWithTimeout error: %v", err)
 				originConn.Close()
 				continue
 			}
-			log.Tracef("check TLS connection success, isTLS: %v custom: %v internal: %v", isTLS, custom, internal)
+			xl.Tracef("check TLS connection success, isTLS: %v custom: %v internal: %v", isTLS, custom, internal)
 		}
 
 		// Start a new goroutine to handle connection.
@@ -535,7 +538,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 				fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
 				session, err := fmux.Server(frpConn, fmuxCfg)
 				if err != nil {
-					log.Warnf("failed to create mux connection: %v", err)
+					xlog.FromContextSafe(ctx).Warnf("failed to create mux connection: %v", err)
 					frpConn.Close()
 					return
 				}
@@ -543,7 +546,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 				for {
 					stream, err := session.AcceptStream()
 					if err != nil {
-						log.Debugf("accept new mux stream error: %v", err)
+						xlog.FromContextSafe(ctx).Debugf("accept new mux stream error: %v", err)
 						session.Close()
 						return
 					}
@@ -561,7 +564,7 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 	for {
 		c, err := l.Accept(context.Background())
 		if err != nil {
-			log.Warnf("quic listener for incoming connections from client closed")
+			xlog.FromContextSafe(svr.ctx).Warnf("quic listener for incoming connections from client closed")
 			return
 		}
 		// Start a new goroutine to handle connection.
@@ -569,7 +572,7 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 			for {
 				stream, err := frpConn.AcceptStream(context.Background())
 				if err != nil {
-					log.Debugf("accept new quic mux stream error: %v", err)
+					xlog.FromContextSafe(ctx).Debugf("accept new quic mux stream error: %v", err)
 					_ = frpConn.CloseWithError(0, "")
 					return
 				}

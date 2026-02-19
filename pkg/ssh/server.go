@@ -34,7 +34,6 @@ import (
 	"github.com/fatedier/frp/pkg/config"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/msg"
-	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/util"
 	"github.com/fatedier/frp/pkg/util/xlog"
@@ -114,6 +113,10 @@ func (s *TunnelServer) Run() error {
 	}
 	pc.Complete(clientCfg.User)
 
+	// xl is declared before the callback so the closure can capture it.
+	// It will be set below before the callback is invoked.
+	var xl *xlog.Logger
+
 	vc, err := virtual.NewClient(virtual.ClientOptions{
 		Common: clientCfg,
 		Spec: &msg.ClientSpec{
@@ -126,7 +129,7 @@ func (s *TunnelServer) Run() error {
 			// join workConn and ssh channel
 			c, err := s.openConn(addr)
 			if err != nil {
-				log.Tracef("open conn error: %v", err)
+				xl.Tracef("open conn error: %v", err)
 				workConn.Close()
 				return false
 			}
@@ -150,7 +153,7 @@ func (s *TunnelServer) Run() error {
 			_ = s.peerServerListener.PutConn(conn)
 		}
 	}()
-	xl := xlog.New().AddPrefix(xlog.LogPrefix{Name: "sshVirtualClient", Value: "sshVirtualClient", Priority: 100})
+	xl = xlog.New().AddPrefix(xlog.LogPrefix{Name: "sshVirtualClient", Value: "sshVirtualClient", Priority: 100})
 	ctx := xlog.NewContext(context.Background(), xl)
 	go func() {
 		vcErr := s.vc.Run(ctx)
@@ -170,7 +173,7 @@ func (s *TunnelServer) Run() error {
 
 	if ps, err := s.waitProxyStatusReady(pc.GetBaseConfig().Name, time.Second); err != nil {
 		s.writeToClient(err.Error())
-		log.Warnf("wait proxy status ready error: %v", err)
+		xl.Warnf("wait proxy status ready error: %v", err)
 	} else {
 		// success
 		s.writeToClient(createSuccessInfo(clientCfg.User, pc, ps))
@@ -178,7 +181,7 @@ func (s *TunnelServer) Run() error {
 	}
 
 	s.vc.Close()
-	log.Tracef("ssh tunnel connection from %v closed", sshConn.RemoteAddr())
+	xl.Tracef("ssh tunnel connection from %v closed", sshConn.RemoteAddr())
 	s.closeDoneChOnce.Do(func() {
 		_ = sshConn.Close()
 		close(s.doneCh)

@@ -34,6 +34,7 @@ import (
 
 	httppkg "github.com/fatedier/frp/pkg/util/http"
 	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 var ErrNoRouteFound = errors.New("no route found")
@@ -78,7 +79,7 @@ func NewHTTPReverseProxy(option HTTPReverseProxyOptions, vhostRouter *Routers) *
 					// ignore error here, it will use CreateConnFn instead later
 					endpoint, _ = rc.ChooseEndpointFn()
 					reqRouteInfo.Endpoint = endpoint
-					log.Tracef("choose endpoint name [%s] for http request host [%s] path [%s] httpuser [%s]",
+					xlog.FromContextSafe(req.Context()).Tracef("choose endpoint name [%s] for http request host [%s] path [%s] httpuser [%s]",
 						endpoint, originalHost, reqRouteInfo.URL, reqRouteInfo.HTTPUser)
 				}
 				// Set {domain}.{location}.{routeByHTTPUser}.{endpoint} as URL host here to let http transport reuse connections.
@@ -129,7 +130,7 @@ func NewHTTPReverseProxy(option HTTPReverseProxyOptions, vhostRouter *Routers) *
 		BufferPool: pool.NewBuffer(32 * 1024),
 		ErrorLog:   stdlog.New(log.NewWriteLogger(log.WarnLevel, 2), "", 0),
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
-			log.Logf(log.WarnLevel, 1, "do http proxy request [host: %s] error: %v", req.Host, err)
+			xlog.FromContextSafe(req.Context()).Warnf("do http proxy request [host: %s] error: %v", req.Host, err)
 			if err != nil {
 				if e, ok := err.(net.Error); ok && e.Timeout() {
 					rw.WriteHeader(http.StatusGatewayTimeout)
@@ -137,7 +138,7 @@ func NewHTTPReverseProxy(option HTTPReverseProxyOptions, vhostRouter *Routers) *
 				}
 			}
 			rw.WriteHeader(http.StatusNotFound)
-			_, _ = rw.Write(getNotFoundPageContent())
+			_, _ = rw.Write(getNotFoundPageContent(req.Context()))
 		},
 	}
 	rp.proxy = h2c.NewHandler(proxy, &http2.Server{})
@@ -159,10 +160,10 @@ func (rp *HTTPReverseProxy) UnRegister(routeCfg RouteConfig) {
 	rp.vhostRouter.Del(routeCfg.Domain, routeCfg.Location, routeCfg.RouteByHTTPUser)
 }
 
-func (rp *HTTPReverseProxy) GetRouteConfig(domain, location, routeByHTTPUser string) *RouteConfig {
+func (rp *HTTPReverseProxy) GetRouteConfig(ctx context.Context, domain, location, routeByHTTPUser string) *RouteConfig {
 	vr, ok := rp.getVhost(domain, location, routeByHTTPUser)
 	if ok {
-		log.Debugf("get new http request host [%s] path [%s] httpuser [%s]", domain, location, routeByHTTPUser)
+		xlog.FromContextSafe(ctx).Debugf("get new http request host [%s] path [%s] httpuser [%s]", domain, location, routeByHTTPUser)
 		return vr.payload.(*RouteConfig)
 	}
 	return nil
@@ -258,7 +259,7 @@ func (rp *HTTPReverseProxy) connectHandler(rw http.ResponseWriter, req *http.Req
 
 	remote, err := rp.CreateConnection(req.Context().Value(RouteInfoKey).(*RequestRouteInfo), false)
 	if err != nil {
-		_ = NotFoundResponse().Write(client)
+		_ = NotFoundResponse(req.Context()).Write(client)
 		client.Close()
 		return
 	}
@@ -306,7 +307,7 @@ func (rp *HTTPReverseProxy) injectRequestInfoToCtx(req *http.Request) *http.Requ
 	}
 
 	originalHost, _ := httppkg.CanonicalHost(reqRouteInfo.Host)
-	rc := rp.GetRouteConfig(originalHost, reqRouteInfo.URL, reqRouteInfo.HTTPUser)
+	rc := rp.GetRouteConfig(req.Context(), originalHost, reqRouteInfo.URL, reqRouteInfo.HTTPUser)
 
 	newctx := req.Context()
 	newctx = context.WithValue(newctx, RouteInfoKey, reqRouteInfo)

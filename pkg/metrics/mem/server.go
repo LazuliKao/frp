@@ -15,11 +15,12 @@
 package mem
 
 import (
+	"context"
 	"sync"
 	"time"
 
-	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/pkg/util/metric"
+	"github.com/fatedier/frp/pkg/util/xlog"
 	server "github.com/fatedier/frp/server/metrics"
 )
 
@@ -33,7 +34,6 @@ var (
 func init() {
 	ServerMetrics = sm
 	StatsCollector = sm
-	sm.run()
 }
 
 type serverMetrics struct {
@@ -56,18 +56,24 @@ func newServerMetrics() *serverMetrics {
 	}
 }
 
-func (m *serverMetrics) run() {
+func RunCleanupTask(ctx context.Context) {
+	sm.Run(ctx)
+}
+
+func (m *serverMetrics) Run(ctx context.Context) {
+	xl := xlog.FromContextSafe(ctx)
 	go func() {
 		for {
 			time.Sleep(12 * time.Hour)
 			start := time.Now()
-			count, total := m.clearUselessInfo(time.Duration(7*24) * time.Hour)
-			log.Debugf("clear useless proxy statistics data count %d/%d, cost %v", count, total, time.Since(start))
+			count, total := m.clearUselessInfo(ctx, time.Duration(7*24)*time.Hour)
+			xl.Debugf("clear useless proxy statistics data count %d/%d, cost %v", count, total, time.Since(start))
 		}
 	}()
 }
 
-func (m *serverMetrics) clearUselessInfo(continuousOfflineDuration time.Duration) (int, int) {
+func (m *serverMetrics) clearUselessInfo(ctx context.Context, continuousOfflineDuration time.Duration) (int, int) {
+	xl := xlog.FromContextSafe(ctx)
 	count := 0
 	total := 0
 	// To check if there are any proxies that have been closed for more than continuousOfflineDuration and remove them.
@@ -80,14 +86,14 @@ func (m *serverMetrics) clearUselessInfo(continuousOfflineDuration time.Duration
 			time.Since(data.LastCloseTime) > continuousOfflineDuration {
 			delete(m.info.ProxyStatistics, name)
 			count++
-			log.Tracef("clear proxy [%s]'s statistics data, lastCloseTime: [%s]", name, data.LastCloseTime.String())
+			xl.Tracef("clear proxy [%s]'s statistics data, lastCloseTime: [%s]", name, data.LastCloseTime.String())
 		}
 	}
 	return count, total
 }
 
-func (m *serverMetrics) ClearOfflineProxies() (int, int) {
-	return m.clearUselessInfo(0)
+func (m *serverMetrics) ClearOfflineProxies(ctx context.Context) (int, int) {
+	return m.clearUselessInfo(ctx, 0)
 }
 
 func (m *serverMetrics) NewClient() {

@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 type GeneralResponse struct {
@@ -35,7 +35,7 @@ func MakeHTTPHandlerFunc(handler APIHandler) http.HandlerFunc {
 		ctx := NewContext(w, r)
 		res, err := handler(ctx)
 		if err != nil {
-			log.Warnf("http response [%s]: error: %v", r.URL.Path, err)
+			xlog.FromContextSafe(r.Context()).Warnf("http response [%s]: error: %v", r.URL.Path, err)
 			code := http.StatusInternalServerError
 			if e, ok := err.(*Error); ok {
 				code = e.Code

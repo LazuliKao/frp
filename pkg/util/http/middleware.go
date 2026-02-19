@@ -17,7 +17,7 @@ package http
 import (
 	"net/http"
 
-	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 type responseWriter struct {
@@ -32,9 +32,10 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 func NewRequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("http request: [%s]", r.URL.Path)
+		xl := xlog.FromContextSafe(r.Context())
+		xl.Infof("http request: [%s]", r.URL.Path)
 		rw := &responseWriter{ResponseWriter: w, code: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		log.Infof("http response [%s]: code [%d]", r.URL.Path, rw.code)
+		xl.Infof("http response [%s]: code [%d]", r.URL.Path, rw.code)
 	})
 }

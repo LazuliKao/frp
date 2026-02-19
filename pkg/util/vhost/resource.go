@@ -16,12 +16,13 @@ package vhost
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"os"
 
-	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/pkg/util/version"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 var NotFoundPagePath = ""
@@ -50,7 +51,7 @@ Please try again later.</p>
 `
 )
 
-func getNotFoundPageContent() []byte {
+func getNotFoundPageContent(ctx context.Context) []byte {
 	var (
 		buf []byte
 		err error
@@ -58,7 +59,7 @@ func getNotFoundPageContent() []byte {
 	if NotFoundPagePath != "" {
 		buf, err = os.ReadFile(NotFoundPagePath)
 		if err != nil {
-			log.Warnf("read custom 404 page error: %v", err)
+			xlog.FromContextSafe(ctx).Warnf("read custom 404 page error: %v", err)
 			buf = []byte(NotFound)
 		}
 	} else {
@@ -67,12 +68,12 @@ func getNotFoundPageContent() []byte {
 	return buf
 }
 
-func NotFoundResponse() *http.Response {
+func NotFoundResponse(ctx context.Context) *http.Response {
 	header := make(http.Header)
 	header.Set("server", "frp/"+version.Full())
 	header.Set("Content-Type", "text/html")
 
-	content := getNotFoundPageContent()
+	content := getNotFoundPageContent(ctx)
 	res := &http.Response{
 		Status:        "Not Found",
 		StatusCode:    404,

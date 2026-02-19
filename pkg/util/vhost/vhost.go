@@ -21,7 +21,6 @@ import (
 
 	"github.com/fatedier/golib/errors"
 
-	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/xlog"
 )
@@ -54,6 +53,7 @@ type (
 // It accepts connections and extracts vhost information from the beginning of the connection data.
 // It then routes the connection to its appropriate listener.
 type Muxer struct {
+	ctx      context.Context
 	listener net.Listener
 	timeout  time.Duration
 
@@ -66,11 +66,13 @@ type Muxer struct {
 }
 
 func NewMuxer(
+	ctx context.Context,
 	listener net.Listener,
 	vhostFunc muxFunc,
 	timeout time.Duration,
 ) (mux *Muxer, err error) {
 	mux = &Muxer{
+		ctx:            ctx,
 		listener:       listener,
 		timeout:        timeout,
 		vhostFunc:      vhostFunc,
@@ -205,7 +207,7 @@ func (v *Muxer) handle(c net.Conn) {
 
 	sConn, reqInfoMap, err := v.vhostFunc(c)
 	if err != nil {
-		log.Debugf("get hostname from http/https request error: %v", err)
+		xlog.FromContextSafe(v.ctx).Debugf("get hostname from http/https request error: %v", err)
 		_ = c.Close()
 		return
 	}
@@ -215,7 +217,7 @@ func (v *Muxer) handle(c net.Conn) {
 	httpUser := reqInfoMap["HTTPUser"]
 	l, ok := v.getListener(name, path, httpUser)
 	if !ok {
-		log.Debugf("http request for host [%s] path [%s] httpUser [%s] not found", name, path, httpUser)
+		xlog.FromContextSafe(v.ctx).Debugf("http request for host [%s] path [%s] httpUser [%s] not found", name, path, httpUser)
 		v.failHook(sConn)
 		return
 	}

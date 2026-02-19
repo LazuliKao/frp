@@ -33,7 +33,6 @@ import (
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/policy/security"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/version"
 	"github.com/fatedier/frp/pkg/util/wait"
@@ -177,7 +176,7 @@ func NewService(options ServiceOptions) (*Service, error) {
 		webServer.RouteRegister(s.registerRouteHandlers)
 	}
 	if options.Common.VirtualNet.Address != "" {
-		s.vnetController = vnet.NewController(options.Common.VirtualNet)
+		s.vnetController = vnet.NewController(s.ctx, options.Common.VirtualNet)
 	}
 	return s, nil
 }
@@ -192,24 +191,28 @@ func (svr *Service) Run(ctx context.Context) error {
 		netpkg.SetDefaultDNSAddress(svr.common.DNSServer)
 	}
 
+	xl := xlog.FromContextSafe(svr.ctx)
+
 	if svr.vnetController != nil {
 		if err := svr.vnetController.Init(); err != nil {
-			log.Errorf("init virtual network controller error: %v", err)
+			xl.Errorf("init virtual network controller error: %v", err)
 			return err
 		}
 		go func() {
-			log.Infof("virtual network controller start...")
+			xl := xlog.FromContextSafe(svr.ctx)
+			xl.Infof("virtual network controller start...")
 			if err := svr.vnetController.Run(); err != nil {
-				log.Warnf("virtual network controller exit with error: %v", err)
+				xl.Warnf("virtual network controller exit with error: %v", err)
 			}
 		}()
 	}
 
 	if svr.webServer != nil {
 		go func() {
-			log.Infof("admin server listen on %s", svr.webServer.Address())
+			xl := xlog.FromContextSafe(svr.ctx)
+			xl.Infof("admin server listen on %s", svr.webServer.Address())
 			if err := svr.webServer.Run(); err != nil {
-				log.Warnf("admin server exit with error: %v", err)
+				xl.Warnf("admin server exit with error: %v", err)
 			}
 		}()
 	}

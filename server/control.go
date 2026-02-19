@@ -445,17 +445,17 @@ func (ctl *Control) handlePing(m msg.Message) {
 
 func (ctl *Control) handleNatHoleVisitor(m msg.Message) {
 	inMsg := m.(*msg.NatHoleVisitor)
-	ctl.rc.NatHoleController.HandleVisitor(inMsg, ctl.msgTransporter, ctl.loginMsg.User)
+	ctl.rc.NatHoleController.HandleVisitor(ctl.ctx, inMsg, ctl.msgTransporter, ctl.loginMsg.User)
 }
 
 func (ctl *Control) handleNatHoleClient(m msg.Message) {
 	inMsg := m.(*msg.NatHoleClient)
-	ctl.rc.NatHoleController.HandleClient(inMsg, ctl.msgTransporter)
+	ctl.rc.NatHoleController.HandleClient(ctl.ctx, inMsg, ctl.msgTransporter)
 }
 
 func (ctl *Control) handleNatHoleReport(m msg.Message) {
 	inMsg := m.(*msg.NatHoleReport)
-	ctl.rc.NatHoleController.HandleReport(inMsg)
+	ctl.rc.NatHoleController.HandleReport(ctl.ctx, inMsg)
 }
 
 func (ctl *Control) handleCloseProxy(m msg.Message) {

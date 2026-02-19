@@ -28,7 +28,6 @@ import (
 	"golang.org/x/net/ipv6"
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
@@ -37,6 +36,7 @@ const (
 )
 
 type Controller struct {
+	ctx  context.Context
 	addr string
 
 	tun          io.ReadWriteCloser
@@ -44,8 +44,9 @@ type Controller struct {
 	serverRouter *serverRouter // Route based on source IP (server mode)
 }
 
-func NewController(cfg v1.VirtualNetConfig) *Controller {
+func NewController(ctx context.Context, cfg v1.VirtualNetConfig) *Controller {
 	return &Controller{
+		ctx:          ctx,
 		addr:         cfg.Address,
 		clientRouter: newClientRouter(),
 		serverRouter: newServerRouter(),
@@ -62,6 +63,7 @@ func (c *Controller) Init() error {
 }
 
 func (c *Controller) Run() error {
+	xl := xlog.FromContextSafe(c.ctx)
 	conn := c.tun
 
 	for {
@@ -69,7 +71,7 @@ func (c *Controller) Run() error {
 		n, err := conn.Read(buf)
 		if err != nil {
 			pool.PutBuf(buf)
-			log.Warnf("vnet read from tun error: %v", err)
+			xl.Warnf("vnet read from tun error: %v", err)
 			return err
 		}
 
@@ -80,41 +82,42 @@ func (c *Controller) Run() error {
 
 // handlePacket processes a single packet. The caller is responsible for managing the buffer.
 func (c *Controller) handlePacket(buf []byte) {
-	log.Tracef("vnet read from tun [%d]: %s", len(buf), base64.StdEncoding.EncodeToString(buf))
+	xl := xlog.FromContextSafe(c.ctx)
+	xl.Tracef("vnet read from tun [%d]: %s", len(buf), base64.StdEncoding.EncodeToString(buf))
 
 	var src, dst net.IP
 	switch {
 	case waterutil.IsIPv4(buf):
 		header, err := ipv4.ParseHeader(buf)
 		if err != nil {
-			log.Warnf("parse ipv4 header error: %v", err)
+			xl.Warnf("parse ipv4 header error: %v", err)
 			return
 		}
 		src = header.Src
 		dst = header.Dst
-		log.Tracef("%s >> %s %d/%-4d %-4x %d",
+		xl.Tracef("%s >> %s %d/%-4d %-4x %d",
 			header.Src, header.Dst,
 			header.Len, header.TotalLen, header.ID, header.Flags)
 	case waterutil.IsIPv6(buf):
 		header, err := ipv6.ParseHeader(buf)
 		if err != nil {
-			log.Warnf("parse ipv6 header error: %v", err)
+			xl.Warnf("parse ipv6 header error: %v", err)
 			return
 		}
 		src = header.Src
 		dst = header.Dst
-		log.Tracef("%s >> %s %d %d",
+		xl.Tracef("%s >> %s %d %d",
 			header.Src, header.Dst,
 			header.PayloadLen, header.TrafficClass)
 	default:
-		log.Tracef("unknown packet, discarded(%d)", len(buf))
+		xl.Tracef("unknown packet, discarded(%d)", len(buf))
 		return
 	}
 
 	targetConn, err := c.clientRouter.findConn(dst)
 	if err == nil {
 		if err := WriteMessage(targetConn, buf); err != nil {
-			log.Warnf("write to client target conn error: %v", err)
+			xl.Warnf("write to client target conn error: %v", err)
 		}
 		return
 	}
@@ -122,12 +125,12 @@ func (c *Controller) handlePacket(buf []byte) {
 	targetConn, err = c.serverRouter.findConnBySrc(dst)
 	if err == nil {
 		if err := WriteMessage(targetConn, buf); err != nil {
-			log.Warnf("write to server target conn error: %v", err)
+			xl.Warnf("write to server target conn error: %v", err)
 		}
 		return
 	}
 
-	log.Tracef("no route found for packet from %s to %s", src, dst)
+	xl.Tracef("no route found for packet from %s to %s", src, dst)
 }
 
 func (c *Controller) Stop() error {

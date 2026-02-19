@@ -15,6 +15,7 @@
 package mem
 
 import (
+	"context"
 	"time"
 
 	"github.com/fatedier/frp/pkg/util/metric"
@@ -84,5 +85,5 @@ type Collector interface {
 	GetProxiesByTypeAndName(proxyType string, proxyName string) *ProxyStats
 	GetProxyByName(proxyName string) *ProxyStats
 	GetProxyTraffic(name string) *ProxyTrafficInfo
-	ClearOfflineProxies() (int, int)
+	ClearOfflineProxies(ctx context.Context) (int, int)
 }

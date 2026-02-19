@@ -16,6 +16,7 @@ package tcpmux
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -36,12 +37,14 @@ type HTTPConnectTCPMuxer struct {
 	passthrough bool
 }
 
-func NewHTTPConnectTCPMuxer(listener net.Listener, passthrough bool, timeout time.Duration) (*HTTPConnectTCPMuxer, error) {
+func NewHTTPConnectTCPMuxer(ctx context.Context, listener net.Listener, passthrough bool, timeout time.Duration) (*HTTPConnectTCPMuxer, error) {
 	ret := &HTTPConnectTCPMuxer{passthrough: passthrough}
-	mux, err := vhost.NewMuxer(listener, ret.getHostFromHTTPConnect, timeout)
+	mux, err := vhost.NewMuxer(ctx, listener, ret.getHostFromHTTPConnect, timeout)
 	mux.SetCheckAuthFunc(ret.auth).
 		SetSuccessHookFunc(ret.sendConnectResponse).
-		SetFailHookFunc(vhostFailed)
+		SetFailHookFunc(func(c net.Conn) {
+			vhostFailed(ctx, c)
+		})
 	ret.Muxer = mux
 	return ret, err
 }
@@ -93,8 +96,8 @@ func (muxer *HTTPConnectTCPMuxer) auth(c net.Conn, username, password string, re
 	return false, nil
 }
 
-func vhostFailed(c net.Conn) {
-	res := vhost.NotFoundResponse()
+func vhostFailed(ctx context.Context, c net.Conn) {
+	res := vhost.NotFoundResponse(ctx)
 	if res.Body != nil {
 		defer res.Body.Close()
 	}

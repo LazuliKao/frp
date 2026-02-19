@@ -15,6 +15,7 @@
 package ssh
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -25,11 +26,12 @@ import (
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/transport"
-	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
+	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
 type Gateway struct {
+	ctx      context.Context
 	bindPort int
 	ln       net.Listener
 
@@ -39,7 +41,7 @@ type Gateway struct {
 }
 
 func NewGateway(
-	cfg v1.SSHTunnelGateway, bindAddr string,
+	ctx context.Context, cfg v1.SSHTunnelGateway, bindAddr string,
 	peerServerListener *netpkg.InternalListener,
 ) (*Gateway, error) {
 	sshConfig := &ssh.ServerConfig{}
@@ -75,7 +77,7 @@ func NewGateway(
 	sshConfig.PublicKeyCallback = func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 		authorizedKeysMap, err := loadAuthorizedKeysFromFile(cfg.AuthorizedKeysFile)
 		if err != nil {
-			log.Errorf("load authorized keys file error: %v", err)
+			xlog.FromContextSafe(ctx).Errorf("load authorized keys file error: %v", err)
 			return nil, fmt.Errorf("internal error")
 		}
 
@@ -95,6 +97,7 @@ func NewGateway(
 		return nil, err
 	}
 	return &Gateway{
+		ctx:                ctx,
 		bindPort:           cfg.BindPort,
 		ln:                 ln,
 		peerServerListener: peerServerListener,
@@ -124,7 +127,7 @@ func (g *Gateway) handleConn(conn net.Conn) {
 		return
 	}
 	if err := ts.Run(); err != nil {
-		log.Errorf("ssh tunnel server run error: %v", err)
+		xlog.FromContextSafe(g.ctx).Errorf("ssh tunnel server run error: %v", err)
 	}
 }
 
