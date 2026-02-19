@@ -132,7 +132,7 @@ type Service struct {
 	cancel context.CancelFunc
 }
 
-func NewService(cfg *v1.ServerConfig) (*Service, error) {
+func NewService(ctx context.Context, cfg *v1.ServerConfig) (*Service, error) {
 	tlsConfig, err := transport.NewServerTLSConfig(
 		cfg.Transport.TLS.CertFile,
 		cfg.Transport.TLS.KeyFile,
@@ -176,7 +176,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		webServer:         webServer,
 		tlsConfig:         tlsConfig,
 		cfg:               cfg,
-		ctx:               context.Background(),
+		ctx:               ctx,
 	}
 	if webServer != nil {
 		webServer.RouteRegister(svr.registerRouteHandlers)
@@ -509,8 +509,8 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 			return
 		}
 		// inject xlog object into net.Conn context
-		xl := xlog.New()
-		ctx := context.Background()
+		xl := xlog.FromContextSafe(svr.ctx)
+		ctx := svr.ctx
 
 		c = netpkg.NewContextConn(xlog.NewContext(ctx, xl), c)
 
@@ -562,7 +562,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 func (svr *Service) HandleQUICListener(l *quic.Listener) {
 	// Listen for incoming connections from client.
 	for {
-		c, err := l.Accept(context.Background())
+		c, err := l.Accept(svr.ctx)
 		if err != nil {
 			xlog.FromContextSafe(svr.ctx).Warnf("quic listener for incoming connections from client closed")
 			return
@@ -570,7 +570,7 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 		// Start a new goroutine to handle connection.
 		go func(ctx context.Context, frpConn *quic.Conn) {
 			for {
-				stream, err := frpConn.AcceptStream(context.Background())
+				stream, err := frpConn.AcceptStream(ctx)
 				if err != nil {
 					xlog.FromContextSafe(ctx).Debugf("accept new quic mux stream error: %v", err)
 					_ = frpConn.CloseWithError(0, "")
@@ -578,7 +578,7 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 				}
 				go svr.handleConnection(ctx, netpkg.QuicStreamToNetConn(stream, frpConn), false)
 			}
-		}(context.Background(), c)
+		}(svr.ctx, c)
 	}
 }
 

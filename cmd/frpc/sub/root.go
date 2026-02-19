@@ -159,7 +159,7 @@ func startService(
 		log.Infof("start frpc service for config file [%s]", cfgFile)
 		defer log.Infof("frpc service for config file [%s] stopped", cfgFile)
 	}
-	svr, err := client.NewService(client.ServiceOptions{
+	svr, err := client.NewService(context.Background(), client.ServiceOptions{
 		Common:         cfg,
 		ProxyCfgs:      proxyCfgs,
 		VisitorCfgs:    visitorCfgs,

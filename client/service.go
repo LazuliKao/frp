@@ -140,7 +140,7 @@ type Service struct {
 	handleWorkConnCb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
 }
 
-func NewService(options ServiceOptions) (*Service, error) {
+func NewService(ctx context.Context, options ServiceOptions) (*Service, error) {
 	if err := setServiceOptionsDefault(&options); err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func NewService(options ServiceOptions) (*Service, error) {
 	}
 
 	s := &Service{
-		ctx:              context.Background(),
+		ctx:              ctx,
 		auth:             authRuntime,
 		webServer:        webServer,
 		common:           options.Common,

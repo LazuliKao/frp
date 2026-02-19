@@ -54,7 +54,7 @@ func NewClient(options ClientOptions) (*Client, error) {
 		},
 		HandleWorkConnCb: options.HandleWorkConnCb,
 	}
-	svr, err := client.NewService(serviceOptions)
+	svr, err := client.NewService(context.Background(), serviceOptions)
 	if err != nil {
 		return nil, err
 	}
