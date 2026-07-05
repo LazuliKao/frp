@@ -45,9 +45,10 @@ func getFreeTCPPort(t *testing.T) int {
 
 func TestRunStopsStartedComponentsOnInitialLoginFailure(t *testing.T) {
 	port := getFreeTCPPort(t)
+	ctx := context.Background()
 	agg := source.NewAggregator(source.NewConfigSource())
 
-	svr, err := NewService(ServiceOptions{
+	svr, err := NewService(ctx, ServiceOptions{
 		Common: &v1.ClientCommonConfig{
 			LoginFailExit: lo.ToPtr(true),
 			WebServer: v1.WebServerConfig{
@@ -84,9 +85,10 @@ func TestRunStopsStartedComponentsOnInitialLoginFailure(t *testing.T) {
 
 func TestNewServiceDoesNotLeakAdminListenerOnAuthBuildFailure(t *testing.T) {
 	port := getFreeTCPPort(t)
+	ctx := context.Background()
 	agg := source.NewAggregator(source.NewConfigSource())
 
-	_, err := NewService(ServiceOptions{
+	_, err := NewService(ctx, ServiceOptions{
 		Common: &v1.ClientCommonConfig{
 			Auth: v1.AuthClientConfig{
 				Method: v1.AuthMethodOIDC,

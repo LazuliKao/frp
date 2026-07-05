@@ -1,6 +1,7 @@
 package mem
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ func TestServerMetricsUsesClockForProxyTimestamps(t *testing.T) {
 func TestServerMetricsClearUselessInfoUsesClock(t *testing.T) {
 	require := require.New(t)
 
+	ctx := context.Background()
 	start := time.Date(2026, time.May, 8, 12, 30, 0, 0, time.UTC)
 	clk := clocktesting.NewFakeClock(start.Add(25 * time.Hour))
 	metrics := newServerMetricsWithClock(clk)
@@ -36,7 +38,7 @@ func TestServerMetricsClearUselessInfoUsesClock(t *testing.T) {
 		LastCloseTime: start,
 	}
 
-	count, total := metrics.clearUselessInfo(24 * time.Hour)
+	count, total := metrics.clearUselessInfo(ctx, 24*time.Hour)
 
 	require.Equal(1, count)
 	require.Equal(1, total)
@@ -45,6 +47,7 @@ func TestServerMetricsClearUselessInfoUsesClock(t *testing.T) {
 
 func TestServerMetricsRunUsesClockTicker(t *testing.T) {
 	require := require.New(t)
+	ctx := context.Background()
 
 	start := time.Date(2026, time.May, 8, 12, 30, 0, 0, time.UTC)
 	clk := clocktesting.NewFakeClock(start)
@@ -59,7 +62,7 @@ func TestServerMetricsRunUsesClockTicker(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		metrics.runUntil(stopCh)
+		metrics.runUntil(ctx, stopCh)
 	}()
 	t.Cleanup(func() {
 		close(stopCh)
