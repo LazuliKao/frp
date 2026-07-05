@@ -40,13 +40,16 @@ type HTTPConnectTCPMuxer struct {
 func NewHTTPConnectTCPMuxer(ctx context.Context, listener net.Listener, passthrough bool, timeout time.Duration) (*HTTPConnectTCPMuxer, error) {
 	ret := &HTTPConnectTCPMuxer{passthrough: passthrough}
 	mux, err := vhost.NewMuxer(ctx, listener, ret.getHostFromHTTPConnect, timeout)
+	if err != nil {
+		return nil, err
+	}
 	mux.SetCheckAuthFunc(ret.auth).
 		SetSuccessHookFunc(ret.sendConnectResponse).
 		SetFailHookFunc(func(c net.Conn) {
 			vhostFailed(ctx, c)
 		})
 	ret.Muxer = mux
-	return ret, err
+	return ret, nil
 }
 
 func (muxer *HTTPConnectTCPMuxer) readHTTPConnectRequest(rd io.Reader) (host, httpUser, httpPwd string, err error) {

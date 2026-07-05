@@ -111,7 +111,7 @@ func (s *TunnelServer) Run() error {
 	if sshConn.Permissions != nil {
 		clientCfg.User = util.EmptyOr(sshConn.Permissions.Extensions["user"], clientCfg.User)
 	}
-	pc.Complete(clientCfg.User)
+	pc.Complete()
 
 	// xl is declared before the callback so the closure can capture it.
 	// It will be set below before the callback is invoked.

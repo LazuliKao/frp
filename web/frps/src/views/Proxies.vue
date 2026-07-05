@@ -8,23 +8,13 @@
         </div>
 
         <div class="actions-section">
-          <el-button :icon="Refresh" class="action-btn" @click="fetchData"
-            >Refresh</el-button
-          >
+          <ActionButton variant="outline" size="small" @click="fetchData">
+            Refresh
+          </ActionButton>
 
-          <el-popconfirm
-            title="Clear all offline proxies?"
-            width="220"
-            confirm-button-text="Clear"
-            cancel-button-text="Cancel"
-            @confirm="clearOfflineProxies"
-          >
-            <template #reference>
-              <el-button :icon="Delete" class="action-btn" type="danger" plain
-                >Clear Offline</el-button
-              >
-            </template>
-          </el-popconfirm>
+          <ActionButton variant="outline" size="small" danger @click="showClearDialog = true">
+            Clear Offline
+          </ActionButton>
         </div>
       </div>
 
@@ -38,28 +28,35 @@
             class="main-search"
           />
 
-          <el-select
+          <PopoverMenu
             :model-value="selectedClientKey"
-            placeholder="All Clients"
-            clearable
+            :width="220"
+            placement="bottom-end"
+            selectable
             filterable
-            class="client-select"
-            @change="onClientFilterChange"
+            filter-placeholder="Search clients..."
+            :display-value="selectedClientLabel"
+            clearable
+            class="client-filter"
+            @update:model-value="onClientFilterChange($event as string)"
           >
-            <el-option label="All Clients" value="" />
-            <el-option
-              v-if="clientIDFilter && !selectedClientInList"
-              :label="`${userFilter ? userFilter + '.' : ''}${clientIDFilter} (not found)`"
-              :value="selectedClientKey"
-              style="color: var(--el-color-warning); font-style: italic"
-            />
-            <el-option
-              v-for="client in clientOptions"
-              :key="client.key"
-              :label="client.label"
-              :value="client.key"
-            />
-          </el-select>
+            <template #default="{ filterText }">
+              <PopoverMenuItem value="">All Clients</PopoverMenuItem>
+              <PopoverMenuItem
+                v-if="clientIDFilter && !selectedClientInList"
+                :value="selectedClientKey"
+              >
+                {{ userFilter ? userFilter + '.' : '' }}{{ clientIDFilter }} (not found)
+              </PopoverMenuItem>
+              <PopoverMenuItem
+                v-for="client in filteredClientOptions(filterText)"
+                :key="client.key"
+                :value="client.key"
+              >
+                {{ client.label }}
+              </PopoverMenuItem>
+            </template>
+          </PopoverMenu>
         </div>
 
         <div class="type-tabs">
@@ -80,14 +77,24 @@
       <div v-if="filteredProxies.length > 0" class="proxies-list">
         <ProxyCard
           v-for="proxy in filteredProxies"
-          :key="proxy.name"
+          :key="`${proxy.type}:${proxy.name}`"
           :proxy="proxy"
+          :show-type="activeType === 'all'"
         />
       </div>
       <div v-else-if="!loading" class="empty-state">
         <el-empty description="No proxies found" />
       </div>
     </div>
+
+    <ConfirmDialog
+      v-model="showClearDialog"
+      title="Clear Offline"
+      message="Are you sure you want to clear all offline proxies?"
+      confirm-text="Clear"
+      danger
+      @confirm="handleClearConfirm"
+    />
   </div>
 </template>
 
@@ -95,7 +102,9 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
+import ActionButton from '@shared/components/ActionButton.vue'
+import ConfirmDialog from '@shared/components/ConfirmDialog.vue'
 import {
   BaseProxy,
   TCPProxy,
@@ -107,6 +116,8 @@ import {
   SUDPProxy,
 } from '../utils/proxy'
 import ProxyCard from '../components/ProxyCard.vue'
+import PopoverMenu from '@shared/components/PopoverMenu.vue'
+import PopoverMenuItem from '@shared/components/PopoverMenuItem.vue'
 import {
   getProxiesByType,
   clearOfflineProxies as apiClearOfflineProxies,
@@ -119,12 +130,14 @@ const route = useRoute()
 const router = useRouter()
 
 const proxyTypes = [
+  { label: 'All', value: 'all' },
   { label: 'TCP', value: 'tcp' },
   { label: 'UDP', value: 'udp' },
   { label: 'HTTP', value: 'http' },
   { label: 'HTTPS', value: 'https' },
   { label: 'TCPMUX', value: 'tcpmux' },
   { label: 'STCP', value: 'stcp' },
+  { label: 'XTCP', value: 'xtcp' },
   { label: 'SUDP', value: 'sudp' },
 ]
 
@@ -133,6 +146,7 @@ const proxies = ref<BaseProxy[]>([])
 const clients = ref<Client[]>([])
 const loading = ref(false)
 const searchText = ref('')
+const showClearDialog = ref(false)
 const clientIDFilter = ref((route.query.clientID as string) || '')
 const userFilter = ref((route.query.user as string) || '')
 
@@ -157,6 +171,20 @@ const selectedClientKey = computed(() => {
   return client?.key || `${userFilter.value}:${clientIDFilter.value}`
 })
 
+const selectedClientLabel = computed(() => {
+  if (!clientIDFilter.value) return 'All Clients'
+  const client = clientOptions.value.find(
+    (c) => c.clientID === clientIDFilter.value && c.user === userFilter.value,
+  )
+  return client?.label || `${userFilter.value ? userFilter.value + '.' : ''}${clientIDFilter.value}`
+})
+
+const filteredClientOptions = (filterText: string) => {
+  if (!filterText) return clientOptions.value
+  const search = filterText.toLowerCase()
+  return clientOptions.value.filter((c) => c.label.toLowerCase().includes(search))
+}
+
 // Check if the filtered client exists in the client list
 const selectedClientInList = computed(() => {
   if (!clientIDFilter.value) return true
@@ -175,14 +203,47 @@ const filteredProxies = computed(() => {
     )
   }
 
-  // Filter by search text
+  // Filter by search text across multiple fields
   if (searchText.value) {
     const search = searchText.value.toLowerCase()
-    result = result.filter((p) => p.name.toLowerCase().includes(search))
+    result = result.filter((p) => {
+      const fields: unknown[] = [
+        p.name,
+        p.type,
+        p.clientID,
+        p.user,
+        p.addr,
+        p.port,
+        p.customDomains,
+        p.subdomain,
+      ]
+      return fields.some((v) => matchesSearch(v, search))
+    })
   }
 
   return result
 })
+
+// Normalize a field of unknown shape (string / number / array / null) to a
+// lowercase string for case-insensitive substring matching. Arrays are joined
+// so e.g. customDomains: ["A.com","B.com"] is searchable as one blob.
+const matchesSearch = (value: unknown, needle: string): boolean => {
+  if (value === null || value === undefined) return false
+  let str: string
+  if (Array.isArray(value)) {
+    str = value
+      .filter((v) => v !== null && v !== undefined)
+      .map((v) => String(v))
+      .join(' ')
+  } else if (typeof value === 'number') {
+    if (value === 0) return false
+    str = String(value)
+  } else {
+    str = String(value)
+  }
+  if (!str) return false
+  return str.toLowerCase().includes(needle)
+}
 
 const onClientFilterChange = (key: string) => {
   if (key) {
@@ -224,45 +285,88 @@ const fetchServerInfo = async () => {
   return serverInfo
 }
 
+const convertProxies = async (
+  type: string,
+  json: any,
+): Promise<BaseProxy[]> => {
+  if (type === 'tcp') {
+    return json.proxies.map((p: any) => new TCPProxy(p))
+  }
+  if (type === 'udp') {
+    return json.proxies.map((p: any) => new UDPProxy(p))
+  }
+  if (type === 'http') {
+    const info = await fetchServerInfo()
+    if (info && info.vhostHTTPPort) {
+      return json.proxies.map(
+        (p: any) => new HTTPProxy(p, info.vhostHTTPPort, info.subdomainHost),
+      )
+    }
+    return []
+  }
+  if (type === 'https') {
+    const info = await fetchServerInfo()
+    if (info && info.vhostHTTPSPort) {
+      return json.proxies.map(
+        (p: any) => new HTTPSProxy(p, info.vhostHTTPSPort, info.subdomainHost),
+      )
+    }
+    return []
+  }
+  if (type === 'tcpmux') {
+    const info = await fetchServerInfo()
+    if (info && info.tcpmuxHTTPConnectPort) {
+      return json.proxies.map(
+        (p: any) =>
+          new TCPMuxProxy(p, info.tcpmuxHTTPConnectPort, info.subdomainHost),
+      )
+    }
+    return []
+  }
+  if (type === 'stcp') {
+    return json.proxies.map((p: any) => new STCPProxy(p))
+  }
+  if (type === 'sudp') {
+    return json.proxies.map((p: any) => new SUDPProxy(p))
+  }
+  // Fallback for types without a dedicated class (e.g. xtcp). Matches the
+  // pattern in ProxyDetail.vue so the type tag and meta render correctly.
+  return json.proxies.map((p: any) => {
+    const bp = new BaseProxy(p)
+    bp.type = type
+    return bp
+  })
+}
+
+const allProxyTypes = [
+  'tcp',
+  'udp',
+  'http',
+  'https',
+  'tcpmux',
+  'stcp',
+  'xtcp',
+  'sudp',
+]
+
 const fetchData = async () => {
   loading.value = true
   proxies.value = []
 
   try {
     const type = activeType.value
-    const json = await getProxiesByType(type)
 
-    if (type === 'tcp') {
-      proxies.value = json.proxies.map((p: any) => new TCPProxy(p))
-    } else if (type === 'udp') {
-      proxies.value = json.proxies.map((p: any) => new UDPProxy(p))
-    } else if (type === 'http') {
-      const info = await fetchServerInfo()
-      if (info && info.vhostHTTPPort) {
-        proxies.value = json.proxies.map(
-          (p: any) => new HTTPProxy(p, info.vhostHTTPPort, info.subdomainHost),
-        )
-      }
-    } else if (type === 'https') {
-      const info = await fetchServerInfo()
-      if (info && info.vhostHTTPSPort) {
-        proxies.value = json.proxies.map(
-          (p: any) =>
-            new HTTPSProxy(p, info.vhostHTTPSPort, info.subdomainHost),
-        )
-      }
-    } else if (type === 'tcpmux') {
-      const info = await fetchServerInfo()
-      if (info && info.tcpmuxHTTPConnectPort) {
-        proxies.value = json.proxies.map(
-          (p: any) =>
-            new TCPMuxProxy(p, info.tcpmuxHTTPConnectPort, info.subdomainHost),
-        )
-      }
-    } else if (type === 'stcp') {
-      proxies.value = json.proxies.map((p: any) => new STCPProxy(p))
-    } else if (type === 'sudp') {
-      proxies.value = json.proxies.map((p: any) => new SUDPProxy(p))
+    if (type === 'all') {
+      const results = await Promise.all(
+        allProxyTypes.map(async (t) => {
+          const json = await getProxiesByType(t)
+          return convertProxies(t, json)
+        }),
+      )
+      proxies.value = results.flat()
+    } else {
+      const json = await getProxiesByType(type)
+      proxies.value = await convertProxies(type, json)
     }
   } catch (error: any) {
     ElMessage({
@@ -273,6 +377,11 @@ const fetchData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleClearConfirm = async () => {
+  showClearDialog.value = false
+  await clearOfflineProxies()
 }
 
 const clearOfflineProxies = async () => {
@@ -357,12 +466,6 @@ fetchClients()
   gap: 12px;
 }
 
-.action-btn {
-  border-radius: 8px;
-  padding: 8px 16px;
-  height: 36px;
-  font-weight: 500;
-}
 
 .filter-section {
   display: flex;
@@ -382,35 +485,14 @@ fetchClients()
   flex: 1;
 }
 
-.main-search,
-.client-select {
-  height: 44px;
-}
-
 .main-search :deep(.el-input__wrapper),
-.client-select :deep(.el-input__wrapper) {
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  padding: 0 16px;
-  height: 100%;
-  border: 1px solid var(--el-border-color);
+.client-filter :deep(.el-input__wrapper) {
+  height: 32px;
+  border-radius: 8px;
 }
 
-.main-search :deep(.el-input__wrapper) {
-  font-size: 15px;
-}
-
-.client-select {
+.client-filter {
   width: 240px;
-}
-
-.client-select :deep(.el-select__wrapper) {
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  padding: 0 12px;
-  height: 44px;
-  min-height: 44px;
-  border: 1px solid var(--el-border-color);
 }
 
 .type-tabs {
@@ -462,7 +544,7 @@ fetchClients()
     flex-direction: column;
   }
 
-  .client-select {
+  .client-filter {
     width: 100%;
   }
 }

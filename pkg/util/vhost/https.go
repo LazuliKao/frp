@@ -30,11 +30,15 @@ type HTTPSMuxer struct {
 
 func NewHTTPSMuxer(ctx context.Context, listener net.Listener, timeout time.Duration) (*HTTPSMuxer, error) {
 	mux, err := NewMuxer(ctx, listener, GetHTTPSHostname, timeout)
+	if err != nil {
+		return nil, err
+	}
 	mux.SetFailHookFunc(vhostFailed)
 	if err != nil {
 		return nil, err
 	}
-	return &HTTPSMuxer{mux}, err
+	mux.SetFailHookFunc(vhostFailed)
+	return &HTTPSMuxer{mux}, nil
 }
 
 func GetHTTPSHostname(c net.Conn) (_ net.Conn, _ map[string]string, err error) {
